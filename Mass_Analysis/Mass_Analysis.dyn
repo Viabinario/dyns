@@ -1,0 +1,497 @@
+{
+  "Uuid": "44d451bf-a2a1-41f8-826d-9ab300972d6a",
+  "IsCustomNode": false,
+  "Description": "",
+  "Name": "Mass_Analysis",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [],
+  "Nodes": [
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "import clr\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitServices')\r\nfrom Autodesk.Revit.DB import *\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom RevitServices.Transactions import TransactionManager\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\nWORKSET_NAME = \"Rooms_3D_Visual\"\r\n\r\n# ── Buscar workset ─────────────────────────────────────────\r\nworkset_id = None\r\nworkset_int = None\r\nfor ws in FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset):\r\n    if ws.Name == WORKSET_NAME:\r\n        workset_id  = ws.Id\r\n        workset_int = ws.Id.IntegerValue\r\n        break\r\n\r\nif workset_id is None:\r\n    OUT = [\"Workset '{}' no encontrado — nada que limpiar.\".format(WORKSET_NAME)]\r\nelse:\r\n    # ── Recoger TODAS las masas y filtrar por workset ──────\r\n    all_masses = FilteredElementCollector(doc)\\\r\n        .OfCategory(BuiltInCategory.OST_Mass)\\\r\n        .WhereElementIsNotElementType()\\\r\n        .ToElements()\r\n\r\n    # Diagnóstico: ver qué workset tiene cada masa\r\n    debug = []\r\n    to_delete = []\r\n\r\n    for m in all_masses:\r\n        ws_param = m.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)\r\n        if ws_param is None:\r\n            debug.append(\"{} → sin param workset\".format(m.Name or \"?\"))\r\n            continue\r\n        mass_ws_int = ws_param.AsInteger()\r\n        debug.append(\"{} → workset ID: {} (buscamos: {})\".format(\r\n            m.Name or \"?\", mass_ws_int, workset_int))\r\n        if mass_ws_int == workset_int:\r\n            to_delete.append(m.Id)\r\n\r\n    # ── Eliminar ───────────────────────────────────────────\r\n    deleted = 0\r\n    if to_delete:\r\n        TransactionManager.Instance.EnsureInTransaction(doc)\r\n        for eid in to_delete:\r\n            try:\r\n                doc.Delete(eid)\r\n                deleted += 1\r\n            except:\r\n                pass\r\n        TransactionManager.Instance.TransactionTaskDone()\r\n\r\n    OUT = [\r\n        \"Workset '{}' ID: {}\".format(WORKSET_NAME, workset_int),\r\n        \"Total masas en modelo: {}\".format(len(list(all_masses))),\r\n        \"Masas a eliminar: {}\".format(len(to_delete)),\r\n        \"Eliminadas: {}\".format(deleted),\r\n        \"Detalle (primeras 10): {}\".format(debug[:10])\r\n    ]",
+      "Engine": "CPython3",
+      "EngineName": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "0b7a61567d4d4f309b6d1d4c6fd7a08f",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "eb61fdb94f1b4dbe8a8f09b4cf0610eb",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "2919788457344ac4bde905c0920aa716",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "import clr\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitServices')\r\nfrom Autodesk.Revit.DB import *\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom RevitServices.Transactions import TransactionManager\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\nWORKSET_NAME = \"Rooms_3D_Visual\"\r\n\r\n# ══════════════════════════════════════════════════════════════\r\n# PARAM_MAP — nombres confirmados por el nodo de diagnóstico\r\n# ══════════════════════════════════════════════════════════════\r\nPARAM_MAP = [\r\n    # Parámetros nativos leídos por nombre — más fiable en vinculados\r\n    (\"Room_Name\",       \"Name\"),\r\n    (\"Room_Number\",     \"Number\"),\r\n    (\"Room_Level\",      \"Level\"),\r\n    (\"Room_Department\", \"Department\"),\r\n    (\"Room_Area_m2\",    \"Area\"),          # se convierte a m² aparte\r\n    # Parámetros de proyecto\r\n    (\"VivNumero\",       \"DAT_TXT_VivNumero\"),\r\n    (\"VivPlanta\",       \"DAT_TXT_VivPlanta\"),\r\n    (\"VivTipo\",         \"DAT_TXT_VivTipo\"),\r\n    (\"Bloque\",          \"DAT_TXT_VivBloque\"),\r\n    (\"Categoria\",       \"AHM_CNT_00_Categoria\"),\r\n    (\"AcabadoSuelo\",    \"AHM_MAT_AcabadodelSuelo\"),\r\n    (\"AcabadoMuro\",     \"AHM_MAT_AcabadodelMuro\"),\r\n]\r\n# ══════════════════════════════════════════════════════════════\r\n\r\n# ── 1. Workset ─────────────────────────────────────────────\r\nworkset_id = None\r\nfor ws in FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset):\r\n    if ws.Name == WORKSET_NAME:\r\n        workset_id = ws.Id\r\n        break\r\n\r\nif workset_id is None:\r\n    TransactionManager.Instance.EnsureInTransaction(doc)\r\n    new_ws = Workset.Create(doc, WORKSET_NAME)\r\n    workset_id = new_ws.Id\r\n    TransactionManager.Instance.TransactionTaskDone()\r\n\r\n# ── 2. Recoger rooms ───────────────────────────────────────\r\nall_rooms = []\r\n\r\nfor r in FilteredElementCollector(doc)\\\r\n        .OfCategory(BuiltInCategory.OST_Rooms)\\\r\n        .WhereElementIsNotElementType().ToElements():\r\n    if r.Area > 0:\r\n        all_rooms.append((r, doc, None))\r\n\r\nfor li in FilteredElementCollector(doc)\\\r\n        .OfClass(RevitLinkInstance).ToElements():\r\n    link_doc = li.GetLinkDocument()\r\n    if link_doc is None:\r\n        continue\r\n    transform = li.GetTotalTransform()\r\n    for r in FilteredElementCollector(link_doc)\\\r\n            .OfCategory(BuiltInCategory.OST_Rooms)\\\r\n            .WhereElementIsNotElementType().ToElements():\r\n        if r.Area > 0:\r\n            all_rooms.append((r, link_doc, transform))\r\n\r\n# ── 3. Helpers ─────────────────────────────────────────────\r\ndef is_valid_solid(geo):\r\n    try:\r\n        if geo is None or not isinstance(geo, Solid):\r\n            return False\r\n        if geo.Volume <= 1e-6 or geo.Faces.Size == 0:\r\n            return False\r\n        return True\r\n    except:\r\n        return False\r\n\r\ndef get_room_value(room, param_def):\r\n    try:\r\n        p = room.LookupParameter(param_def)\r\n\r\n        if p is None:\r\n            return \"\"\r\n\r\n        # Área: convertir de ft² a m²\r\n        if param_def == \"Area\":\r\n            raw = p.AsDouble()\r\n            if raw > 0:\r\n                return \"{:.2f}\".format(raw * 0.092903)\r\n            return \"\"\r\n\r\n        # Intentar AsString primero\r\n        val = p.AsString()\r\n        if val and val.strip() and val != \"0.0\":\r\n            return val.strip()\r\n\r\n        # Si no, AsValueString (para parámetros numéricos o de tipo)\r\n        val = p.AsValueString()\r\n        if val and val.strip() and val != \"0.0\":\r\n            return val.strip()\r\n\r\n        return \"\"\r\n    except:\r\n        return \"\"\r\n\r\n# ── 4. Crear masas ─────────────────────────────────────────\r\ncat_id  = ElementId(BuiltInCategory.OST_Mass)\r\ncreated = []\r\nerrors  = []\r\n\r\nTransactionManager.Instance.EnsureInTransaction(doc)\r\n\r\nfor room, source_doc, transform in all_rooms:\r\n    room_name = room.get_Parameter(BuiltInParameter.ROOM_NAME).AsString() or \"?\"\r\n    try:\r\n        calc   = SpatialElementGeometryCalculator(source_doc)\r\n        result = calc.CalculateSpatialElementGeometry(room)\r\n        geo    = result.GetGeometry()\r\n\r\n        if transform is not None and not transform.IsIdentity:\r\n            geo = SolidUtils.CreateTransformed(geo, transform)\r\n\r\n        if not is_valid_solid(geo):\r\n            errors.append(\"{}: geometría no válida, omitida\".format(room_name))\r\n            continue\r\n\r\n        ds = DirectShape.CreateElement(doc, cat_id)\r\n        ds.SetShape([geo])\r\n\r\n        room_num = room.get_Parameter(BuiltInParameter.ROOM_NUMBER).AsString() or \"\"\r\n        ds.Name  = \"{} {}\".format(room_name, room_num).strip()\r\n\r\n        comment_parts = []\r\n        for label, param_def in PARAM_MAP:\r\n            val = get_room_value(room, param_def)\r\n            comment_parts.append(\"{}: {}\".format(label, val))\r\n\r\n        p_comments = ds.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)\r\n        if p_comments:\r\n            p_comments.Set(\" | \".join(comment_parts))\r\n\r\n        ws_param = ds.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)\r\n        if ws_param and not ws_param.IsReadOnly:\r\n            ws_param.Set(workset_id.IntegerValue)\r\n\r\n        created.append(ds.Name)\r\n\r\n    except Exception as e:\r\n        errors.append(\"{}: {}\".format(room_name, str(e)))\r\n\r\nTransactionManager.Instance.TransactionTaskDone()\r\n\r\nOUT = [\r\n    \"✓ {} masas creadas en workset '{}'\".format(len(created), WORKSET_NAME),\r\n    errors if errors else \"Sin errores\"\r\n]",
+      "Engine": "CPython3",
+      "EngineName": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "02bb1d054df7417695c64d5e78076256",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "0209162c409340a7b6f68064c77be72b",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "351c482b51154292880ad3aebfc2ea10",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Watch, CoreNodeModels",
+      "WatchWidth": 200.0,
+      "WatchHeight": 200.0,
+      "Id": "0408144f0f8e40aa9be59eafb06323fa",
+      "NodeType": "ExtensionNode",
+      "Inputs": [
+        {
+          "Id": "eb900a50e3a84cc4b91084cc5f41015c",
+          "Name": "",
+          "Description": "Node to show output from",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "f13686e554ed42e88a7236a4ea9e5ade",
+          "Name": "",
+          "Description": "Node output",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Visualizes a node's output"
+    },
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "# Nodo de diagnóstico — conecta su OUT a un Watch\r\nimport clr\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitServices')\r\nfrom Autodesk.Revit.DB import *\r\nfrom RevitServices.Persistence import DocumentManager\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\n\r\nall_rooms = []\r\n\r\nhost_rooms = FilteredElementCollector(doc)\\\r\n    .OfCategory(BuiltInCategory.OST_Rooms)\\\r\n    .WhereElementIsNotElementType()\\\r\n    .ToElements()\r\nfor r in host_rooms:\r\n    if r.Area > 0:\r\n        all_rooms.append((r, doc))\r\n\r\nlink_instances = FilteredElementCollector(doc)\\\r\n    .OfClass(RevitLinkInstance)\\\r\n    .ToElements()\r\nfor li in link_instances:\r\n    link_doc = li.GetLinkDocument()\r\n    if link_doc is None:\r\n        continue\r\n    for r in FilteredElementCollector(link_doc)\\\r\n            .OfCategory(BuiltInCategory.OST_Rooms)\\\r\n            .WhereElementIsNotElementType()\\\r\n            .ToElements():\r\n        if r.Area > 0:\r\n            all_rooms.append((r, link_doc))\r\n\r\n# Imprime todos los parámetros disponibles del primer room\r\ndiagnostico = []\r\nif all_rooms:\r\n    room, _ = all_rooms[0]\r\n    for p in room.Parameters:\r\n        try:\r\n            val = p.AsString() or p.AsValueString() or str(p.AsDouble())\r\n        except:\r\n            val = \"(error)\"\r\n        diagnostico.append(\"{} = {}\".format(p.Definition.Name, val))\r\n\r\nOUT = diagnostico",
+      "Engine": "CPython3",
+      "EngineName": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "ac05cc6667304ee19ccf411d365774c2",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "cfffae6696034d209b20fb38783a1648",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "51fe7cce95dc4136935714a0c29f56b9",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Watch, CoreNodeModels",
+      "WatchWidth": 200.0,
+      "WatchHeight": 200.0,
+      "Id": "5820edb0d83e4ede8cce0039c1a9915e",
+      "NodeType": "ExtensionNode",
+      "Inputs": [
+        {
+          "Id": "5c31878dba3140d09d8d5d09547bdc3a",
+          "Name": "",
+          "Description": "Node to show output from",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "cdd8b4734e14430ca633ba931f912390",
+          "Name": "",
+          "Description": "Node output",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Visualizes a node's output"
+    },
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "import clr\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitServices')\r\nfrom Autodesk.Revit.DB import *\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom RevitServices.Transactions import TransactionManager\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\n\r\n# ══════════════════════════════════════════════════════════════\r\n# REGLAS DE COLOR\r\n# Formato: (\"label del PARAM_MAP\", \"modo\", \"valor\", (R, G, B))\r\n# Modos: \"equals\" | \"contains\" | \"startswith\" | \"endswith\"\r\n# Comparación ignora mayúsculas/minúsculas\r\n# ══════════════════════════════════════════════════════════════\r\nCOLOR_RULES = [\r\n    # Por Tipo de Recinto\r\n    # (\"Room_Name\", \"contains\", \"SALÓN\", (80, 180, 255)),   # azul\r\n    # (\"Room_Name\", \"contains\", \"DORMITORIO 2\", (255, 180,  80)),   # naranja\r\n    # (\"Room_Name\", \"contains\", \"DORMITORIO 3\", (120, 220, 120)),   # verde\r\n      (\"Room_Name\", \"contains\", \"Büro\", (255, 100, 100)),   # rojo\r\n      (\"Room_Name\", \"contains\", \"Bad\", (120, 220, 120)),\r\n      (\"Room_Name\", \"contains\", \"Balkon\", (80, 180, 255)),\r\n    \r\n    # Por bloque — usando \"contains\" porque el nivel incluye prefijo numérico\r\n    # (\"Room_Level\", \"contains\", \"BL01\", (255, 100, 100)),   # rojo\r\n    # (\"Room_Level\", \"contains\", \"BL2\", (255, 180,  80)),   # naranja\r\n    # (\"Room_Level\", \"contains\", \"BL03\", ( 80, 180, 255)),   # azul\r\n    # (\"Room_Level\", \"contains\", \"BL04\", (120, 220, 120)),   # verde\r\n\r\n    # Zonas especiales\r\n    # (\"Room_Level\", \"contains\", \"GARAJE\",    (160, 160, 160)),  # gris\r\n    # (\"Room_Level\", \"contains\", \"DEPURADORA\",(100, 200, 200)),  # cyan\r\n    # (\"Room_Level\", \"contains\", \"PISCINA\",   ( 80, 140, 255)),  # azul agua\r\n    # (\"Room_Level\", \"contains\", \"LÁMINA\",    ( 80, 140, 255)),  # azul agua\r\n\r\n    # Por planta si lo necesitas\r\n    # (\"VivPlanta\", \"equals\", \"P00\", (200, 255, 200)),\r\n    # (\"VivPlanta\", \"equals\", \"S01\", (200, 200, 255)),\r\n\r\n    # Por tipo de vivienda\r\n    # (\"VivTipo\", \"equals\", \"TR\", (220, 200, 100)),\r\n]\r\nDEFAULT_COLOR = (220, 220, 220)  # gris para rooms sin regla — None para no aplicar\r\nTRANSPARENCY  = 30               # 0 = opaco, 100 = invisible\r\n# ══════════════════════════════════════════════════════════════\r\n\r\n# ── Vista 3D activa ────────────────────────────────────────\r\nactive_view = doc.ActiveView\r\nif not isinstance(active_view, View3D):\r\n    OUT = [\"ERROR: la vista activa no es una vista 3D.\"]\r\n    raise Exception(\"Vista activa no es 3D\")\r\n\r\n# ── Recoger masas del workset Rooms_3D_Visual ──────────────\r\nWORKSET_NAME = \"Rooms_3D_Visual\"\r\nworkset_id = None\r\nfor ws in FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset):\r\n    if ws.Name == WORKSET_NAME:\r\n        workset_id = ws.Id\r\n        break\r\n\r\nif workset_id is None:\r\n    OUT = [\"ERROR: workset '{}' no encontrado.\".format(WORKSET_NAME)]\r\n    raise Exception(\"Workset no encontrado\")\r\n\r\nmasses = [\r\n    m for m in FilteredElementCollector(doc)\r\n        .OfCategory(BuiltInCategory.OST_Mass)\r\n        .WhereElementIsNotElementType()\r\n        .ToElements()\r\n    if m.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM) is not None\r\n    and m.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)\r\n        .AsInteger() == workset_id.IntegerValue\r\n]\r\n\r\n# ── Leer valor de Comments por label ──────────────────────\r\ndef get_comment_value(mass, label):\r\n    p = mass.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)\r\n    if p is None:\r\n        return None\r\n    for part in (p.AsString() or \"\").split(\" | \"):\r\n        if part.startswith(label + \":\"):\r\n            val = part.split(\":\", 1)[1].strip()\r\n            return val if val and val != \"0.0\" else None\r\n    return None\r\n\r\n# ── Evaluar modo de comparación ────────────────────────────\r\ndef rule_matches(comment_val, mode, rule_value):\r\n    a = comment_val.lower()\r\n    b = rule_value.lower()\r\n    if mode == \"equals\":\r\n        return a == b\r\n    elif mode == \"contains\":\r\n        return b in a\r\n    elif mode == \"startswith\":\r\n        return a.startswith(b)\r\n    elif mode == \"endswith\":\r\n        return a.endswith(b)\r\n    return False\r\n\r\n# ── Buscar patrón sólido una sola vez ─────────────────────\r\nsolid_pattern_id = None\r\nfor fp in FilteredElementCollector(doc).OfClass(FillPatternElement):\r\n    if fp.GetFillPattern().IsSolidFill:\r\n        solid_pattern_id = fp.Id\r\n        break\r\n\r\n# ── Crear OverrideGraphicSettings ─────────────────────────\r\ndef make_override(r, g, b):\r\n    ogs = OverrideGraphicSettings()\r\n    color = Color(r, g, b)\r\n    ogs.SetSurfaceForegroundPatternColor(color)\r\n    ogs.SetSurfaceForegroundPatternVisible(True)\r\n    if solid_pattern_id:\r\n        ogs.SetSurfaceForegroundPatternId(solid_pattern_id)\r\n    ogs.SetSurfaceTransparency(TRANSPARENCY)\r\n    ogs.SetProjectionLineColor(color)\r\n    return ogs\r\n\r\n# ── Aplicar overrides ──────────────────────────────────────\r\ncolored   = 0\r\ndefaulted = 0\r\nno_match_names = []\r\n\r\nTransactionManager.Instance.EnsureInTransaction(doc)\r\n\r\nfor mass in masses:\r\n    matched_color = None\r\n\r\n    for label, mode, value, rgb in COLOR_RULES:\r\n        comment_val = get_comment_value(mass, label)\r\n        if comment_val and rule_matches(comment_val, mode, value):\r\n            matched_color = rgb\r\n            break\r\n\r\n    if matched_color:\r\n        active_view.SetElementOverrides(mass.Id, make_override(*matched_color))\r\n        colored += 1\r\n    elif DEFAULT_COLOR:\r\n        active_view.SetElementOverrides(mass.Id, make_override(*DEFAULT_COLOR))\r\n        defaulted += 1\r\n        no_match_names.append(mass.Name)\r\n\r\nTransactionManager.Instance.TransactionTaskDone()\r\n\r\nOUT = [\r\n    \"✓ {} masas coloreadas por regla\".format(colored),\r\n    \"○ {} masas con color por defecto\".format(defaulted),\r\n    \"Sin regla: {}\".format(no_match_names[:20]) if no_match_names else \"Todas con regla\"\r\n]",
+      "Engine": "CPython3",
+      "EngineName": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "28799cbe95c944b2878571066acca8f6",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "640c141e03da42ab9512ff3a93f513d7",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "4e10465bcec142e9bb1d3e90e5a9ab11",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "import clr\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitServices')\r\nfrom Autodesk.Revit.DB import *\r\nfrom RevitServices.Persistence import DocumentManager\r\n\r\ndoc = DocumentManager.Instance.CurrentDBDocument\r\n\r\nWORKSET_NAME = \"Rooms_3D_Visual\"\r\nworkset_id = None\r\nfor ws in FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset):\r\n    if ws.Name == WORKSET_NAME:\r\n        workset_id = ws.Id\r\n        break\r\n\r\nmasses = [\r\n    m for m in FilteredElementCollector(doc)\r\n        .OfCategory(BuiltInCategory.OST_Mass)\r\n        .WhereElementIsNotElementType()\r\n        .ToElements()\r\n    if m.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM) is not None\r\n    and m.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)\r\n        .AsInteger() == workset_id.IntegerValue\r\n]\r\n\r\n# Extraer valores únicos de Room_Level y VivPlanta\r\nlevels   = set()\r\nplantas  = set()\r\ntipos    = set()\r\n\r\nfor mass in masses:\r\n    p = mass.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)\r\n    if p is None:\r\n        continue\r\n    comments = p.AsString() or \"\"\r\n    for part in comments.split(\" | \"):\r\n        if part.startswith(\"Room_Level:\"):\r\n            levels.add(part.split(\":\",1)[1].strip())\r\n        elif part.startswith(\"VivPlanta:\"):\r\n            plantas.add(part.split(\":\",1)[1].strip())\r\n        elif part.startswith(\"VivTipo:\"):\r\n            tipos.add(part.split(\":\",1)[1].strip())\r\n\r\nOUT = [\r\n    \"Room_Level únicos: {}\".format(sorted(levels)),\r\n    \"VivPlanta únicos: {}\".format(sorted(plantas)),\r\n    \"VivTipo únicos: {}\".format(sorted(tipos)),\r\n]",
+      "Engine": "CPython3",
+      "EngineName": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "34599fd033e44082a54af9b3c3b38ddf",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "9033fe9b1f724888bcf9ad8b5ffde8a8",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "b24c199fa9034b198e958bb5c67f437c",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Watch, CoreNodeModels",
+      "WatchWidth": 200.0,
+      "WatchHeight": 200.0,
+      "Id": "1fe91cd4d2c448de872c662d108ad6a1",
+      "NodeType": "ExtensionNode",
+      "Inputs": [
+        {
+          "Id": "cfaca7325b814f929f7a95d06705bd6a",
+          "Name": "",
+          "Description": "Node to show output from",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "e039a2f201794cee8624fff8fd99e2a6",
+          "Name": "",
+          "Description": "Node output",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Visualizes a node's output"
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Watch, CoreNodeModels",
+      "WatchWidth": 200.0,
+      "WatchHeight": 200.0,
+      "Id": "7ab2843ef61f48be942940bc4ef41c7c",
+      "NodeType": "ExtensionNode",
+      "Inputs": [
+        {
+          "Id": "a00103c968974d88982331cdb262822e",
+          "Name": "",
+          "Description": "Node to show output from",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "b41f1c298fb646f3a4c9093de52d3363",
+          "Name": "",
+          "Description": "Node output",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Visualizes a node's output"
+    }
+  ],
+  "Connectors": [
+    {
+      "Start": "2919788457344ac4bde905c0920aa716",
+      "End": "cfffae6696034d209b20fb38783a1648",
+      "Id": "490de4d6d1044effab69e27db9371680",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "2919788457344ac4bde905c0920aa716",
+      "End": "a00103c968974d88982331cdb262822e",
+      "Id": "73060909c1124921b2e024d870bc7003",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "351c482b51154292880ad3aebfc2ea10",
+      "End": "9033fe9b1f724888bcf9ad8b5ffde8a8",
+      "Id": "864050fea84a45bc926e718fefabdf52",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "351c482b51154292880ad3aebfc2ea10",
+      "End": "640c141e03da42ab9512ff3a93f513d7",
+      "Id": "ea72cef204544d86bb081a9d94501443",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "51fe7cce95dc4136935714a0c29f56b9",
+      "End": "5c31878dba3140d09d8d5d09547bdc3a",
+      "Id": "d813bdeeec4a4e889be60fb22bfb8419",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "51fe7cce95dc4136935714a0c29f56b9",
+      "End": "0209162c409340a7b6f68064c77be72b",
+      "Id": "95badd1345a943b8821b10c302cfac7a",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "4e10465bcec142e9bb1d3e90e5a9ab11",
+      "End": "eb900a50e3a84cc4b91084cc5f41015c",
+      "Id": "a85bd10ab53c4c70ac9937f19b790f3d",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "b24c199fa9034b198e958bb5c67f437c",
+      "End": "cfaca7325b814f929f7a95d06705bd6a",
+      "Id": "5e02efdd73c64f13a97b52e61c411478",
+      "IsHidden": "False"
+    }
+  ],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [
+    {
+      "ExtensionGuid": "28992e1d-abb9-417f-8b1b-05e053bee670",
+      "Name": "Properties",
+      "Version": "2.19",
+      "Data": {}
+    },
+    {
+      "ExtensionGuid": "DFBD9CC0-DB40-457A-939E-8C8555555A9D",
+      "Name": "Generative Design",
+      "Version": "6.1",
+      "Data": {}
+    }
+  ],
+  "Author": "",
+  "Linting": {
+    "activeLinter": "None",
+    "activeLinterId": "7b75fb44-43fd-4631-a878-29f4d5d8399a",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": true,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "2.19.3.6394",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": {
+      "Name": "_Background Preview",
+      "EyeX": -17.0,
+      "EyeY": 24.0,
+      "EyeZ": 50.0,
+      "LookX": 12.0,
+      "LookY": -13.0,
+      "LookZ": -58.0,
+      "UpX": 0.0,
+      "UpY": 1.0,
+      "UpZ": 0.0
+    },
+    "ConnectorPins": [],
+    "NodeViews": [
+      {
+        "Id": "0b7a61567d4d4f309b6d1d4c6fd7a08f",
+        "Name": "1_Clean_Mass",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": -112.24424772118653,
+        "Y": 296.53588239546326
+      },
+      {
+        "Id": "02bb1d054df7417695c64d5e78076256",
+        "Name": "2_Create_Mass_And_WS",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 449.59999999999991,
+        "Y": 294.40000000000009
+      },
+      {
+        "Id": "0408144f0f8e40aa9be59eafb06323fa",
+        "Name": "Watch",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 1028.3744260013843,
+        "Y": 296.3181033722912
+      },
+      {
+        "Id": "ac05cc6667304ee19ccf411d365774c2",
+        "Name": "1.1_Control_Par",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 163.7023245165982,
+        "Y": 293.31891139811563
+      },
+      {
+        "Id": "5820edb0d83e4ede8cce0039c1a9915e",
+        "Name": "Watch",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 132.596245168979,
+        "Y": 511.29437083918174
+      },
+      {
+        "Id": "28799cbe95c944b2878571066acca8f6",
+        "Name": "3. Color_Mass",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 779.53882455864084,
+        "Y": 299.29585640270295
+      },
+      {
+        "Id": "34599fd033e44082a54af9b3c3b38ddf",
+        "Name": "2.1_Inspect",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 541.38143523812039,
+        "Y": 481.37370798390009
+      },
+      {
+        "Id": "1fe91cd4d2c448de872c662d108ad6a1",
+        "Name": "Watch",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 468.79138613884845,
+        "Y": 631.51641699673883
+      },
+      {
+        "Id": "7ab2843ef61f48be942940bc4ef41c7c",
+        "Name": "Watch",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": -217.10519129632473,
+        "Y": 499.87103172798732
+      }
+    ],
+    "Annotations": [],
+    "X": 201.27402465889924,
+    "Y": -175.09087434035524,
+    "Zoom": 0.83897733905561411
+  }
+}
