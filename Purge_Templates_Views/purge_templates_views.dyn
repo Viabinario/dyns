@@ -1,0 +1,149 @@
+{
+  "Uuid": "9eff43ae-23a5-41dd-85c2-0ce2af4e89df",
+  "IsCustomNode": false,
+  "Description": "",
+  "Name": "purge_templates_views",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [],
+  "Nodes": [
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "# =====================================================================\r\n# DYNAMO SCRIPT: Limpiar Plantillas de Vistas No Utilizadas - Revit 2024\r\n# =====================================================================\r\n# INSTRUCCIONES:\r\n#   1. En Dynamo, agrega un nodo \"Python Script\" (o \"Python Script 3\")\r\n#   2. Pega este código completo en el editor del nodo\r\n#   3. Conecta una entrada booleana al parámetro IN[0]:\r\n#      - False = solo analizar (modo seguro, sin eliminar)\r\n#      - True  = eliminar plantillas no utilizadas\r\n#   4. Ejecuta el script\r\n#\r\n# COMPATIBILIDAD: Revit 2024 / Dynamo 2.x / Python 3\r\n# =====================================================================\r\n\r\nimport clr\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitAPIUI')\r\nclr.AddReference('RevitServices')\r\nclr.AddReference('RevitNodes')\r\n\r\nfrom Autodesk.Revit.DB import (\r\n    FilteredElementCollector,\r\n    View,\r\n    ElementId,\r\n    BuiltInParameter,\r\n    Transaction\r\n)\r\nfrom RevitServices.Persistence import DocumentManager\r\nfrom RevitServices.Transactions import TransactionManager\r\n\r\ntry:\r\n    doc = DocumentManager.Instance.CurrentDBDocument\r\n    ejecutar_eliminacion = IN[0] if IN[0] is not None else False\r\n\r\n    todas_plantillas = {}\r\n    collector_vistas = FilteredElementCollector(doc).OfClass(View)\r\n\r\n    for vista in collector_vistas:\r\n        if vista.IsTemplate:\r\n            todas_plantillas[vista.Id.IntegerValue] = {\r\n                \"id\": vista.Id,\r\n                \"nombre\": vista.Name,\r\n                \"en_uso\": False\r\n            }\r\n\r\n    plantillas_usadas_ids = set()\r\n    for vista in collector_vistas:\r\n        if not vista.IsTemplate:\r\n            param_plantilla = vista.get_Parameter(BuiltInParameter.VIEW_TEMPLATE)\r\n            if param_plantilla is not None:\r\n                id_plantilla = param_plantilla.AsElementId()\r\n                if id_plantilla is not None and id_plantilla != ElementId.InvalidElementId:\r\n                    if id_plantilla.IntegerValue != -1:\r\n                        plantillas_usadas_ids.add(id_plantilla.IntegerValue)\r\n\r\n    for id_int in plantillas_usadas_ids:\r\n        if id_int in todas_plantillas:\r\n            todas_plantillas[id_int][\"en_uso\"] = True\r\n\r\n    plantillas_no_usadas = [p for p in todas_plantillas.values() if not p[\"en_uso\"]]\r\n    eliminadas = []\r\n    errores = []\r\n\r\n    if ejecutar_eliminacion:\r\n        with Transaction(doc, \"Eliminar plantillas no usadas\") as t:\r\n            t.Start()\r\n            for plantilla in plantillas_no_usadas:\r\n                try:\r\n                    doc.Delete(plantilla[\"id\"])\r\n                    eliminadas.append(plantilla[\"nombre\"])\r\n                except Exception as e:\r\n                    errores.append(\"{}: {}\".format(plantilla[\"nombre\"], str(e)))\r\n            t.Commit()\r\n\r\n    OUT = [\r\n        \"no usadas: {}\".format(len(plantillas_no_usadas)),\r\n        \"eliminadas: {}\".format(len(eliminadas)),\r\n        errores if errores else [\"sin errores\"]\r\n    ]\r\n\r\nexcept Exception as e:\r\n    OUT = [\"ERROR GENERAL: {}\".format(str(e))]",
+      "Engine": "CPython3",
+      "EngineName": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "e982502c00f649b5b83ccf216b83be39",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "558b40a7919240359f5d0c7afb9587e4",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "4738d765d9bc4c93a803ebbf99c83764",
+          "Name": "OUT",
+          "Description": "Resultado de la secuencia de comandos de Python",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.BoolSelector, CoreNodeModels",
+      "Id": "218a11f8b26a45ac9d6cc881f926737d",
+      "NodeType": "BooleanInputNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "8383b6ece86542738a959a0854c7f24d",
+          "Name": "",
+          "Description": "Boolean",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Enables selection between True and False",
+      "InputValue": false
+    }
+  ],
+  "Connectors": [
+    {
+      "Start": "8383b6ece86542738a959a0854c7f24d",
+      "End": "558b40a7919240359f5d0c7afb9587e4",
+      "Id": "0544d9d240ee478eb04b26eb25b21d15",
+      "IsHidden": "False"
+    }
+  ],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [
+    {
+      "ExtensionGuid": "28992e1d-abb9-417f-8b1b-05e053bee670",
+      "Name": "Propiedades",
+      "Version": "2.19",
+      "Data": {}
+    },
+    {
+      "ExtensionGuid": "DFBD9CC0-DB40-457A-939E-8C8555555A9D",
+      "Name": "Generative Design",
+      "Version": "6.1",
+      "Data": {}
+    }
+  ],
+  "Author": "",
+  "Linting": {
+    "activeLinter": "None",
+    "activeLinterId": "7b75fb44-43fd-4631-a878-29f4d5d8399a",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": true,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "2.19.3.6394",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": {
+      "Name": "_Background Preview",
+      "EyeX": -17.0,
+      "EyeY": 24.0,
+      "EyeZ": 50.0,
+      "LookX": 12.0,
+      "LookY": -13.0,
+      "LookZ": -58.0,
+      "UpX": 0.0,
+      "UpY": 1.0,
+      "UpZ": 0.0
+    },
+    "ConnectorPins": [],
+    "NodeViews": [
+      {
+        "Id": "e982502c00f649b5b83ccf216b83be39",
+        "Name": "Purge_Templates_Views",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 439.2,
+        "Y": -200.80000000000004
+      },
+      {
+        "Id": "218a11f8b26a45ac9d6cc881f926737d",
+        "Name": "Boolean",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 165.59999999999997,
+        "Y": -203.19999999999993
+      }
+    ],
+    "Annotations": [],
+    "X": 19.60000000000008,
+    "Y": 388.00000000000011,
+    "Zoom": 1.0
+  }
+}
