@@ -1,0 +1,149 @@
+{
+  "Uuid": "b192715a-51b8-4f29-a6ce-6e419ca85880",
+  "IsCustomNode": false,
+  "Description": "",
+  "Name": "purge_filters_views",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [],
+  "Nodes": [
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "import clr\r\nclr.AddReference('RevitAPI')\r\nclr.AddReference('RevitAPIUI')\r\nclr.AddReference('RevitServices')\r\nclr.AddReference('RevitNodes')\r\n\r\nfrom Autodesk.Revit.DB import (\r\n    FilteredElementCollector,\r\n    View,\r\n    ParameterFilterElement,\r\n    Transaction\r\n)\r\nfrom RevitServices.Persistence import DocumentManager\r\n\r\ntry:\r\n    doc = DocumentManager.Instance.CurrentDBDocument\r\n    ejecutar_eliminacion = IN[0] if IN[0] is not None else False\r\n\r\n    # PASO 1: Recopilar todos los filtros del proyecto\r\n    todos_filtros = {}\r\n    collector_filtros = FilteredElementCollector(doc).OfClass(ParameterFilterElement)\r\n\r\n    for filtro in collector_filtros:\r\n        todos_filtros[filtro.Id.IntegerValue] = {\r\n            \"id\": filtro.Id,\r\n            \"nombre\": filtro.Name,\r\n            \"en_uso\": False\r\n        }\r\n\r\n    # PASO 2: Detectar cuáles están asignados a alguna vista\r\n    filtros_usados_ids = set()\r\n    collector_vistas = FilteredElementCollector(doc).OfClass(View)\r\n\r\n    for vista in collector_vistas:\r\n        if not vista.IsTemplate:\r\n            try:\r\n                ids_filtros_vista = vista.GetFilters()\r\n                for id_filtro in ids_filtros_vista:\r\n                    filtros_usados_ids.add(id_filtro.IntegerValue)\r\n            except:\r\n                pass\r\n\r\n    # PASO 3: Marcar filtros en uso\r\n    for id_int in filtros_usados_ids:\r\n        if id_int in todos_filtros:\r\n            todos_filtros[id_int][\"en_uso\"] = True\r\n\r\n    filtros_no_usados = [f for f in todos_filtros.values() if not f[\"en_uso\"]]\r\n    eliminados = []\r\n    errores = []\r\n\r\n    # PASO 4: Eliminar si ejecutar_eliminacion = True\r\n    if ejecutar_eliminacion:\r\n        with Transaction(doc, \"Eliminar filtros no utilizados\") as t:\r\n            t.Start()\r\n            for filtro in filtros_no_usados:\r\n                try:\r\n                    doc.Delete(filtro[\"id\"])\r\n                    eliminados.append(filtro[\"nombre\"])\r\n                except Exception as e:\r\n                    errores.append(\"{}: {}\".format(filtro[\"nombre\"], str(e)))\r\n            t.Commit()\r\n\r\n    OUT = [\r\n        \"filtros en el proyecto: {}\".format(len(todos_filtros)),\r\n        \"filtros sin asignar: {}\".format(len(filtros_no_usados)),\r\n        \"eliminados: {}\".format(len(eliminados)),\r\n        [f[\"nombre\"] for f in filtros_no_usados],\r\n        errores if errores else [\"sin errores\"]\r\n    ]\r\n\r\nexcept Exception as e:\r\n    OUT = [\"ERROR GENERAL: {}\".format(str(e))]",
+      "Engine": "CPython3",
+      "EngineName": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "6dfb86b3664842d2bb6bd676739102a8",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "c3bdba11987f44e68478585fa6b84501",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "fb6d5f8e160e4042aa60e14d9ac43cc7",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.BoolSelector, CoreNodeModels",
+      "Id": "b723ea4b4c27457eb548a2e9c04f48a0",
+      "NodeType": "BooleanInputNode",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "4639f53abe104966881beccfe393bac5",
+          "Name": "",
+          "Description": "Boolean",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Enables selection between True and False",
+      "InputValue": false
+    }
+  ],
+  "Connectors": [
+    {
+      "Start": "4639f53abe104966881beccfe393bac5",
+      "End": "c3bdba11987f44e68478585fa6b84501",
+      "Id": "9073b6188e6144d9b3eeeba0cac12cd1",
+      "IsHidden": "False"
+    }
+  ],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [
+    {
+      "ExtensionGuid": "28992e1d-abb9-417f-8b1b-05e053bee670",
+      "Name": "Propiedades",
+      "Version": "2.19",
+      "Data": {}
+    },
+    {
+      "ExtensionGuid": "DFBD9CC0-DB40-457A-939E-8C8555555A9D",
+      "Name": "Generative Design",
+      "Version": "6.1",
+      "Data": {}
+    }
+  ],
+  "Author": "",
+  "Linting": {
+    "activeLinter": "None",
+    "activeLinterId": "7b75fb44-43fd-4631-a878-29f4d5d8399a",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": true,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "2.19.3.6394",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": {
+      "Name": "_Background Preview",
+      "EyeX": -17.0,
+      "EyeY": 24.0,
+      "EyeZ": 50.0,
+      "LookX": 12.0,
+      "LookY": -13.0,
+      "LookZ": -58.0,
+      "UpX": 0.0,
+      "UpY": 1.0,
+      "UpZ": 0.0
+    },
+    "ConnectorPins": [],
+    "NodeViews": [
+      {
+        "Id": "6dfb86b3664842d2bb6bd676739102a8",
+        "Name": "Purge_filters_Views",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 328.79999999999995,
+        "Y": 164.0
+      },
+      {
+        "Id": "b723ea4b4c27457eb548a2e9c04f48a0",
+        "Name": "Boolean",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 57.599999999999966,
+        "Y": 166.40000000000003
+      }
+    ],
+    "Annotations": [],
+    "X": 202.39999999999998,
+    "Y": 28.0,
+    "Zoom": 1.0
+  }
+}
